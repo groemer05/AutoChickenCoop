@@ -28,7 +28,7 @@ int openingDuration = 300; // buffer for end switch
 
 int closingHour = 10;
 int closingMinute = 48;
-int closingDuration = 170;
+int closingDuration = 180;
 
 int testPause = 100;
 
