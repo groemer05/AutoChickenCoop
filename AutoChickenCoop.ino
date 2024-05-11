@@ -22,12 +22,12 @@ int motor1PinClose = 26;
 int buttonPin = 35;
 
 int state = 3;
-int openingHour = 10;
-int openingMinute = 50;
+int openingHour = 06;
+int openingMinute = 00;
 int openingDuration = 300; // buffer for end switch
 
-int closingHour = 10;
-int closingMinute = 48;
+int closingHour = 20;
+int closingMinute = 00;
 int closingDuration = 185;
 
 int testPause = 100;
@@ -70,13 +70,12 @@ void loop()
 	// Serial.println(state);
   // Serial.println(loopCounter);
   delay(100);
-	// if(state == CLOSING || state == OPENING) 
-  loopCounter++;
+	if(state == CLOSING || state == OPENING) 
+    loopCounter++;
 	
 	// Serial.print("loop Counter: ");
 	// Serial.println(loopCounter);
   buttonState = digitalRead(buttonPin);
-	Serial.println(buttonState);
 
   checkNextMotorState();
   // Serial.print(now.hour(), DEC);
@@ -90,11 +89,11 @@ void checkNextMotorState()
 {
 	if(	
     state == CLOSING && loopCounter >= closingDuration ||
-		// state == CLOSED && now.hour() == openingHour && now.minute() == openingMinute ||
-    state == CLOSED && loopCounter >= testPause ||
+		state == CLOSED && now.hour() == openingHour && now.minute() == openingMinute ||
+    // state == CLOSED && loopCounter >= testPause ||
     state == OPENING && ( buttonState == 0 || loopCounter >= openingDuration ) ||
-    //state == OPEN && now.hour() == closingHour && now.minute() == closingMinute ||
-    state == OPEN && loopCounter >= testPause
+    state == OPEN && now.hour() == closingHour && now.minute() == closingMinute
+    // state == OPEN && loopCounter >= testPause
     )
 	{
 		nextMotorState();
