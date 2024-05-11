@@ -19,7 +19,7 @@ char daysOfWeek[7][12] = {
 
 int motor1PinOpen = 27; 
 int motor1PinClose = 26;
-int buttonPin = 34;
+int buttonPin = 35;
 
 int state = 3;
 int openingHour = 10;
@@ -28,12 +28,13 @@ int openingDuration = 300; // buffer for end switch
 
 int closingHour = 10;
 int closingMinute = 48;
-int closingDuration = 180;
+int closingDuration = 185;
 
 int testPause = 100;
 
 int loopCounter = 0;
 int buttonState = 0;
+int cycleCounter = 0;
 
 DateTime now;
 
@@ -61,26 +62,28 @@ void setup()
   now = rtc.now();
   setMotorState();
 }
+
 void loop()
 {
   now = rtc.now();
 	// Serial.println("Current State: ");
-	Serial.println(state);
-  Serial.println(loopCounter);
+	// Serial.println(state);
+  // Serial.println(loopCounter);
   delay(100);
 	// if(state == CLOSING || state == OPENING) 
   loopCounter++;
-	checkNextMotorState();
+	
 	// Serial.print("loop Counter: ");
 	// Serial.println(loopCounter);
   buttonState = digitalRead(buttonPin);
 	Serial.println(buttonState);
 
-  Serial.print(now.hour(), DEC);
-  Serial.print(':');
-  Serial.print(now.minute(), DEC);
-  Serial.print(':');
-  Serial.println(now.second(), DEC);
+  checkNextMotorState();
+  // Serial.print(now.hour(), DEC);
+  // Serial.print(':');
+  // Serial.print(now.minute(), DEC);
+  // Serial.print(':');
+  // Serial.println(now.second(), DEC);
 }
 
 void checkNextMotorState()
@@ -89,7 +92,7 @@ void checkNextMotorState()
     state == CLOSING && loopCounter >= closingDuration ||
 		// state == CLOSED && now.hour() == openingHour && now.minute() == openingMinute ||
     state == CLOSED && loopCounter >= testPause ||
-    state == OPENING && ( buttonState == 1 || loopCounter >= openingDuration ) ||
+    state == OPENING && ( buttonState == 0 || loopCounter >= openingDuration ) ||
     //state == OPEN && now.hour() == closingHour && now.minute() == closingMinute ||
     state == OPEN && loopCounter >= testPause
     )
@@ -97,7 +100,8 @@ void checkNextMotorState()
 		nextMotorState();
 	}
 }
-int setMotorState()
+
+void setMotorState()
 {
 	digitalWrite(motor1PinOpen, LOW); 
   digitalWrite(motor1PinClose, LOW);
@@ -107,14 +111,16 @@ int setMotorState()
 	if(state == 3) {
 		digitalWrite(motor1PinOpen, HIGH);
 	}
-	return 0;
 }
 
 void nextMotorState() {
 	loopCounter = 0;
 	state++;
-  Serial.println("next Motor State");
-	if(state > 4) state = 1;
-  Serial.println(state);
+  // Serial.println("next Motor State");
+	if(state > 4) {
+    state = 1;
+    cycleCounter ++;
+  }
+  // Serial.println(state);
 	setMotorState();
 }  // */
