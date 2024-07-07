@@ -20,6 +20,8 @@
 # define MOTOR_UP_PIN 27
 # define MOTOR_DOWN_PIN 26
 
+# define VOLTAGE_MONITOR_PIN 34
+
 # define CYCLE_TIME 1000 // ms
 # define ERROR_AFTER_CYCLES_AWAKE 120
 
@@ -46,10 +48,14 @@ String temperature = "";
 RTC_DS3231 rtc;
 DateTime now;
 
-RTC_DATA_ATTR int state = 0;
+const float voltageDivider = 98;
+float voltage = 0;
+
+int state = 0;
+int nextState = 0;
 int cycles = 0;
-RTC_DATA_ATTR bool wasPowerless = true;
-RTC_DATA_ATTR int lastTimeSyncMonth = 0;
+
+bool shouldUpdateTime = false;
 
 // Array mit Morgendämmerungszeiten (Minuten seit Mitternacht)
 const int dawnTimes[] = {
@@ -95,13 +101,17 @@ bool isChickenAwake() {
 }
 
 void updateRTC() {
+  startWiFi();
   timeClient.begin();
   if(now.month() > 3 && now.month() < 11) timeClient.setTimeOffset(7200); // Offset für Sommerzeit
   else timeClient.setTimeOffset(3600); // Offset für Winterzeit
   timeClient.update();
   time_t epochTime = timeClient.getEpochTime();
   rtc.adjust(DateTime(epochTime));
-  Serial.println("RTC aktualisiert");
+  // clear all alarms, just in case
+  rtc.clearAlarm(1);
+  rtc.clearAlarm(2);
+  messageToSend = "RTC aktualisiert";
 }
 
 void storeValue(char* to, int val, char behind) {
@@ -130,6 +140,7 @@ int detectState() {
 }
 
 bool startWiFi() {
+  if(WiFi.status() == WL_CONNECTED) return true;
   WiFi.begin(ssid, password);
   Serial.println("Connecting");
   int retries = 0;
@@ -148,8 +159,13 @@ bool startWiFi() {
 }
 
 void sendMessage(String message) {
-  //add time and temp to message
-  String composedMessage = (String)getTime() + " " + message + " Temperatur: " + temperature;
+  //add time, voltage and temp to message
+  delay(500);
+  voltage = analogRead(VOLTAGE_MONITOR_PIN) / voltageDivider;
+  Serial.println(voltage);
+
+  String composedMessage = (String)getTime() + " " + message + "\nTemperatur: " + temperature + "°C\nSpannung: " + voltage + "V";
+  messageToSend = "";
 
   if (DEBUG_MODE) {
     Serial.print("DEBUG. Message to send: ");
@@ -177,9 +193,9 @@ void sendMessage(String message) {
         Serial.print("HTTP response code: ");
         Serial.println(httpResponseCode);
       }
+
       // Free resources
       http.end();
-      WiFi.disconnect();
     }
     
   }
@@ -195,20 +211,24 @@ void updateMotorState() {
   if(state == CLOSING) digitalWrite(MOTOR_DOWN_PIN, HIGH);
 }
 
-void changeState(int nextState = 0) {
-  if(nextState == 0) state = state + 1;
-  else state = nextState;
-  if(state > 4) state = 1;
-  if(state == OPENING && !digitalRead(TOP_END_SWITCH_PIN)) state = OPEN;
-  else if(state == OPENING) 
+void changeState(int stateToSet) {
+  nextState = state + 1;
+  if(nextState > 4) nextState = 1;
+  
+  if(stateToSet == 0) {
+    stateToSet = nextState;
+  }
 
+  state = stateToSet;
+  
+  if(state == OPENING && !digitalRead(TOP_END_SWITCH_PIN)) state = OPEN;
   if(state == CLOSING && !digitalRead(BOTTOM_END_SWITCH_PIN)) state = CLOSED;
   if(state == OPENING) 
     attachInterrupt(digitalPinToInterrupt(TOP_END_SWITCH_PIN), topEndSwitchInterrupt, FALLING);
   if(state == CLOSING) 
     attachInterrupt(digitalPinToInterrupt(BOTTOM_END_SWITCH_PIN), bottomEndSwitchInterrupt, FALLING);
   Serial.print("changed State to ");
-  Serial.println(state);
+  Serial.println(getStateName(state));
   updateMotorState();
 }
 
@@ -217,6 +237,7 @@ void topEndSwitchInterrupt() {
   detachInterrupt(digitalPinToInterrupt(TOP_END_SWITCH_PIN));
   if(state == OPENING) {
     changeState(OPEN);
+    shouldUpdateTime = true;
     messageToSend = "Hühnertür ist jetzt offen!";
   }
 }
@@ -228,6 +249,14 @@ void bottomEndSwitchInterrupt() {
     changeState(CLOSED);
     messageToSend = "Hühnertür ist jetzt geschloßen!";
   }
+}
+
+String getStateName(int stateToGetNameFrom) {
+  if(stateToGetNameFrom == CLOSING) return "CLOSING";
+  if(stateToGetNameFrom == CLOSED) return "CLOSED";
+  if(stateToGetNameFrom == OPENING) return "OPENING";
+  if(stateToGetNameFrom == OPEN) return "OPEN";
+  return "UNKNOWN";
 }
 
 void setup() {
@@ -253,15 +282,7 @@ void setup() {
   }
   now = rtc.now();
 
-  if(wasPowerless) {
-    wasPowerless = false;
-    messageToSend = "Controller war komplett ohne Strom und ist jetzt aufgewacht";
-  }
-
   int detectedState = detectState();
-  if(state != detectedState) {
-    messageToSend = "State war Variable war " + (String)state + ", der erkannte Status aber " + (String)detectedState;
-  }
   changeState(detectedState);
 }
 
@@ -270,7 +291,7 @@ void loop() {
   now = rtc.now();
   Serial.println(getTime());
   temperature = rtc.getTemperature();
-  Serial.println(temperature);
+  // Serial.println(temperature);
 
   bool chickenAwake = isChickenAwake();
 
@@ -278,25 +299,25 @@ void loop() {
   if(state == OPEN && !chickenAwake) changeState(CLOSING);
   if(messageToSend != "") {
     sendMessage(messageToSend);
-    messageToSend = "";
   }
+  
+  if(shouldUpdateTime) {
+    updateRTC();
+    shouldUpdateTime = false;
+  }
+  
   if(messageToSend == "" && (state == OPEN || state == CLOSED)) 
   {
     Serial.println("Go to sleep...");
     Serial.println("");
+    if(WiFi.status() == WL_CONNECTED) WiFi.disconnect();
     if (DEBUG_MODE) esp_sleep_enable_timer_wakeup(5 * uS_TO_S_FACTOR);
     else esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
     Serial.flush(); 
     esp_deep_sleep_start();
   }
-  if(DEBUG_MODE || lastTimeSyncMonth != now.month()) {
-    if(startWiFi()) {
-    	updateRTC();
-      lastTimeSyncMonth = now.month();
-    }
-  }
   cycles++;
-  Serial.println(cycles);
+  // Serial.println(cycles);
   if(cycles > ERROR_AFTER_CYCLES_AWAKE) {
     messageToSend = "Controller ist zu lange wach. Bitte prüfen!";
     cycles = 0;
